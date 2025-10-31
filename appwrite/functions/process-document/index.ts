@@ -61,6 +61,9 @@ module.exports = async function(context) {
   const startTime = Date.now()
   
   try {
+    // Log function start for debugging
+    log(`[${Date.now() - startTime}ms] Function started`)
+    
     // Validate environment variables early
     const requiredEnvVars = [
       'APPWRITE_ENDPOINT',
@@ -76,9 +79,16 @@ module.exports = async function(context) {
     
     const missingVars = requiredEnvVars.filter(key => !process.env[key])
     if (missingVars.length > 0) {
+      const errorMsg = `Missing required environment variables: ${missingVars.join(', ')}`
+      error(errorMsg)
+      log(errorMsg)
       return res.json({
         success: false,
-        error: `Missing required environment variables: ${missingVars.join(', ')}`,
+        error: errorMsg,
+        details: {
+          missingVars: missingVars,
+          availableVars: Object.keys(process.env).filter(k => k.startsWith('APPWRITE_') || k.startsWith('AZURE_') || k.startsWith('NEON_'))
+        }
       }, 500)
     }
     
