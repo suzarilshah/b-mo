@@ -64,6 +64,17 @@ module.exports = async function(context) {
     // Log function start for debugging
     log(`[${Date.now() - startTime}ms] Function started`)
     
+    // Log all environment variables (masked for security)
+    log(`[${Date.now() - startTime}ms] Environment check - Available env vars:`)
+    const envVarKeys = Object.keys(process.env).filter(k => 
+      k.startsWith('APPWRITE_') || k.startsWith('AZURE_') || k.startsWith('NEON_')
+    )
+    envVarKeys.forEach(key => {
+      const value = process.env[key]
+      const isSet = value && value.length > 0
+      log(`  ${key}: ${isSet ? `SET (length: ${value.length})` : 'NOT SET'}`)
+    })
+    
     // Validate environment variables early
     const requiredEnvVars = [
       'APPWRITE_ENDPOINT',
@@ -77,17 +88,35 @@ module.exports = async function(context) {
       'NEON_DATABASE_URL',
     ]
     
-    const missingVars = requiredEnvVars.filter(key => !process.env[key])
-    if (missingVars.length > 0) {
-      const errorMsg = `Missing required environment variables: ${missingVars.join(', ')}`
+    const missingVars = []
+    const emptyVars = []
+    
+    for (const key of requiredEnvVars) {
+      const value = process.env[key]
+      if (!value) {
+        missingVars.push(key)
+      } else if (value.trim().length === 0) {
+        emptyVars.push(key)
+      }
+    }
+    
+    if (missingVars.length > 0 || emptyVars.length > 0) {
+      const errorMsg = missingVars.length > 0 
+        ? `Missing required environment variables: ${missingVars.join(', ')}`
+        : `Empty environment variables: ${emptyVars.join(', ')}`
+      
       error(errorMsg)
       log(errorMsg)
+      log(`Available env vars: ${envVarKeys.join(', ')}`)
+      
       return res.json({
         success: false,
         error: errorMsg,
         details: {
           missingVars: missingVars,
-          availableVars: Object.keys(process.env).filter(k => k.startsWith('APPWRITE_') || k.startsWith('AZURE_') || k.startsWith('NEON_'))
+          emptyVars: emptyVars,
+          availableVars: envVarKeys,
+          deploymentId: process.env.DEPLOYMENT_ID || 'unknown'
         }
       }, 500)
     }
