@@ -88,15 +88,16 @@ export async function processDocumentFunction(
     const FUNCTION_ID = 'process-document'
     
     // Call Appwrite Function execution (async execution)
+    // Note: We use async=true to avoid timeout issues
     const execution = await appwriteFunctions.createExecution(
       FUNCTION_ID,
       JSON.stringify(data),
-      true // Async execution
+      true // Async execution - required for long-running operations
     )
 
-    // Poll for completion (with timeout)
-    const maxWaitTime = 60000 // 60 seconds
-    const pollInterval = 2000 // 2 seconds
+    // Poll for completion (with extended timeout for document processing)
+    const maxWaitTime = 120000 // 120 seconds (2 minutes) - document processing can take time
+    const pollInterval = 3000 // 3 seconds between polls
     const startTime = Date.now()
 
     while (Date.now() - startTime < maxWaitTime) {
@@ -121,17 +122,28 @@ export async function processDocumentFunction(
             }
           }
         } else {
+          // Extract error details from response
+          const errorBody = status.responseBody || status.stderr || status.response
+          const errorMsg = typeof errorBody === 'string' 
+            ? errorBody 
+            : JSON.stringify(errorBody)
+          
           return {
             success: false,
-            error: `Function execution failed: ${status.stderr || status.responseBody || 'Unknown error'}`,
+            error: `Function execution failed: ${errorMsg}`,
           }
         }
       }
 
       if (status.status === 'failed') {
+        const errorBody = status.stderr || status.responseBody || status.response
+        const errorMsg = typeof errorBody === 'string' 
+          ? errorBody 
+          : JSON.stringify(errorBody)
+        
         return {
           success: false,
-          error: status.stderr || status.responseBody || 'Function execution failed',
+          error: `Function execution failed: ${errorMsg}`,
         }
       }
 
@@ -142,7 +154,7 @@ export async function processDocumentFunction(
     // Timeout
     return {
       success: false,
-      error: 'Function execution timeout',
+      error: 'Function execution timeout - document processing is taking longer than expected. Please check the function logs.',
     }
   } catch (err: any) {
     return {

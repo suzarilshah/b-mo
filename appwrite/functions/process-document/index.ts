@@ -36,6 +36,9 @@ interface ProcessDocumentRequest {
 export default async function(context: any) {
   const { req, res, log, error } = context
   
+  // Set execution start time for monitoring
+  const startTime = Date.now()
+  
   try {
     // Parse request
     const data: ProcessDocumentRequest = JSON.parse(req.bodyRaw || '{}')
@@ -49,7 +52,7 @@ export default async function(context: any) {
       }, 400)
     }
 
-    log(`Processing document: ${fileName} for company ${companyId}`)
+    log(`Processing document: ${fileName} for company ${companyId} (started at ${new Date().toISOString()})`)
 
     // Initialize Appwrite admin client
     const appwriteClient = new Client()
@@ -60,7 +63,7 @@ export default async function(context: any) {
     const storage = new Storage(appwriteClient)
 
     // 1. Download file from Appwrite Storage
-    log('Downloading file from Appwrite Storage...')
+    log(`[${Date.now() - startTime}ms] Downloading file from Appwrite Storage...`)
     const fileBuffer = await storage.getFileDownload(
       process.env.APPWRITE_BUCKET_ID!,
       fileId
@@ -71,9 +74,11 @@ export default async function(context: any) {
     const bytes = new Uint8Array(arrayBuffer)
     const binary = bytes.reduce((acc, byte) => acc + String.fromCharCode(byte), '')
     const base64Data = Buffer.from(binary, 'binary').toString('base64')
+    
+    log(`[${Date.now() - startTime}ms] File downloaded and converted (size: ${base64Data.length} bytes)`)
 
     // 2. Analyze with Azure Document Intelligence
-    log('Analyzing document with Azure Document Intelligence...')
+    log(`[${Date.now() - startTime}ms] Starting Azure Document Intelligence analysis...`)
     const docIntelligenceEndpoint = process.env.AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT!
     const docIntelligenceKey = process.env.AZURE_DOCUMENT_INTELLIGENCE_KEY!
     
@@ -101,10 +106,13 @@ export default async function(context: any) {
       throw new Error('No operation location in response')
     }
 
-    // Poll for results
+    log(`[${Date.now() - startTime}ms] Analysis request submitted, polling for results...`)
+
+    // Poll for results (optimized polling with exponential backoff)
     let ocrResult: any = null
     let attempts = 0
-    const maxAttempts = 30
+    const maxAttempts = 20 // Reduced from 30
+    let pollDelay = 500 // Start with 500ms, increase gradually
 
     while (attempts < maxAttempts) {
       const statusResponse = await fetch(operationLocation, {
@@ -128,8 +136,9 @@ export default async function(context: any) {
         throw new Error(`Analysis failed: ${ocrResult.error?.message || 'Unknown error'}`)
       }
 
-      // Wait before next poll
-      await new Promise(resolve => setTimeout(resolve, 1000))
+      // Exponential backoff: 500ms, 750ms, 1000ms, 1500ms...
+      await new Promise(resolve => setTimeout(resolve, pollDelay))
+      pollDelay = Math.min(pollDelay * 1.5, 2000) // Cap at 2 seconds
       attempts++
     }
 
@@ -158,9 +167,10 @@ export default async function(context: any) {
       }
     }
 
-    log(`OCR completed. Confidence: ${minConfidence.toFixed(2)}`)
+    log(`[${Date.now() - startTime}ms] OCR completed. Confidence: ${minConfidence.toFixed(2)}`)
 
     // 3. Get uploaded_by user ID from NeonDB
+    log(`[${Date.now() - startTime}ms] Looking up user in NeonDB...`)
     const sql = neon(process.env.NEON_DATABASE_URL!)
     
     const userResult = await sql`
@@ -174,7 +184,7 @@ export default async function(context: any) {
     const uploadedByUserId = userResult[0].id
 
     // 4. Create document record in NeonDB
-    log('Creating document record in NeonDB...')
+    log(`[${Date.now() - startTime}ms] Creating document record in NeonDB...`)
     const documentId = crypto.randomUUID()
     const status = minConfidence < 0.5 ? 'review' : 'processing'
     const requiresReview = minConfidence < 0.5
@@ -201,11 +211,11 @@ export default async function(context: any) {
       )
     `
 
-    log(`Document record created: ${documentId}`)
+    log(`[${Date.now() - startTime}ms] Document record created: ${documentId}`)
 
     // 5. Generate embeddings if confidence is high enough
     if (minConfidence >= 0.5) {
-      log('Generating embeddings...')
+      log(`[${Date.now() - startTime}ms] Generating embeddings...`)
       
       // Extract text from document fields for embedding
       const textChunks: string[] = []
@@ -240,7 +250,7 @@ export default async function(context: any) {
 
           if (!embeddingResponse.ok) {
             const errorText = await embeddingResponse.text()
-            log(`Warning: Failed to generate embedding: ${errorText}`)
+            log(`[${Date.now() - startTime}ms] Warning: Failed to generate embedding: ${errorText}`)
             // Continue without embeddings - document still created
           } else {
             const embeddingData = await embeddingResponse.json()
@@ -272,15 +282,18 @@ export default async function(context: any) {
                 )
               `
               
-              log(`Embedding stored for document ${documentId}`)
+              log(`[${Date.now() - startTime}ms] Embedding stored for document ${documentId}`)
             }
           }
         } catch (embeddingError: any) {
-          log(`Warning: Embedding generation failed: ${embeddingError.message}`)
+          log(`[${Date.now() - startTime}ms] Warning: Embedding generation failed: ${embeddingError.message}`)
           // Continue without embeddings - document still created
         }
       }
     }
+
+    const totalTime = Date.now() - startTime
+    log(`[${totalTime}ms] Document processing completed successfully`)
 
     return res.json({
       success: true,
@@ -288,13 +301,16 @@ export default async function(context: any) {
       status,
       confidence: minConfidence,
       message: `Document processed successfully: ${fileName}`,
+      processingTimeMs: totalTime,
     })
   } catch (err: any) {
-    error(err.message)
-    log(`Error processing document: ${err.message}`)
+    const totalTime = Date.now() - startTime
+    error(`[${totalTime}ms] Error processing document: ${err.message}`)
+    log(`[${totalTime}ms] Error processing document: ${err.message}`)
     return res.json({
       success: false,
       error: err.message || 'Failed to process document',
+      processingTimeMs: totalTime,
     }, 500)
   }
 }
