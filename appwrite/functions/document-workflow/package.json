@@ -1,0 +1,13 @@
+{
+  "name": "document-workflow",
+  "version": "1.0.0",
+  "description": "Appwrite Function for document workflow processing",
+  "main": "index.ts",
+  "dependencies": {
+    "appwrite": "^15.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
+

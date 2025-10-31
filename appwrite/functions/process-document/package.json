@@ -1,0 +1,17 @@
+{
+  "name": "process-document",
+  "version": "1.0.0",
+  "description": "Appwrite Function for processing documents with Azure OCR and embeddings",
+  "main": "index.ts",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "appwrite": "^15.0.0",
+    "@neondatabase/serverless": "^0.9.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
+
