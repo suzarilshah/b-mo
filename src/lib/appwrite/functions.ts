@@ -263,17 +263,34 @@ export async function processDocumentFunction(
     // Function ID matches the deployed function
     const FUNCTION_ID = 'process-document'
     
-    console.log('[Function] Creating execution with data:', data)
+    console.log('[Function] Creating execution with data:', {
+      fileId: data.fileId,
+      companyId: data.companyId,
+      fileName: data.fileName,
+      fileSize: data.fileSize
+    })
     
     // Call Appwrite Function execution (async execution)
     // Note: We use async=true to avoid timeout issues
-    const execution = await appwriteFunctions.createExecution(
-      FUNCTION_ID,
-      JSON.stringify(data),
-      true // Async execution - required for long-running operations
-    )
-
-    console.log('[Function] Execution created:', execution.$id, 'Status:', execution.status)
+    let execution
+    try {
+      execution = await appwriteFunctions.createExecution(
+        FUNCTION_ID,
+        JSON.stringify(data),
+        true // Async execution - required for long-running operations
+      )
+      console.log('[Function] Execution created successfully:', {
+        executionId: execution.$id,
+        status: execution.status,
+        createdAt: execution.$createdAt
+      })
+    } catch (createError: any) {
+      console.error('[Function] Failed to create execution:', createError)
+      return {
+        success: false,
+        error: `Failed to create function execution: ${createError.message || String(createError)}. Please ensure you are logged in and have permissions to execute the function.`,
+      }
+    }
 
     // Poll for completion (with extended timeout for document processing)
     const maxWaitTime = 120000 // 120 seconds (2 minutes) - document processing can take time
