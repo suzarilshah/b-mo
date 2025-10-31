@@ -24,6 +24,36 @@
 import { Client, Storage } from 'appwrite'
 import { neon } from '@neondatabase/serverless'
 
+// Initialize clients outside the handler to avoid repeated initialization
+// This helps prevent runtime timeout during cold starts
+let appwriteClient: Client | null = null
+let storageInstance: Storage | null = null
+let neonClient: ReturnType<typeof neon> | null = null
+
+function getAppwriteClient(): Client {
+  if (!appwriteClient) {
+    appwriteClient = new Client()
+      .setEndpoint(process.env.APPWRITE_ENDPOINT!)
+      .setProject(process.env.APPWRITE_PROJECT_ID!)
+      .setKey(process.env.APPWRITE_API_KEY!)
+  }
+  return appwriteClient
+}
+
+function getStorage(): Storage {
+  if (!storageInstance) {
+    storageInstance = new Storage(getAppwriteClient())
+  }
+  return storageInstance
+}
+
+function getNeonClient(): ReturnType<typeof neon> {
+  if (!neonClient) {
+    neonClient = neon(process.env.NEON_DATABASE_URL!)
+  }
+  return neonClient
+}
+
 interface ProcessDocumentRequest {
   fileId: string        // Appwrite Storage file ID
   companyId: string
@@ -40,6 +70,29 @@ export default async function(context: any) {
   const startTime = Date.now()
   
   try {
+    // Validate environment variables early
+    const requiredEnvVars = [
+      'APPWRITE_ENDPOINT',
+      'APPWRITE_PROJECT_ID',
+      'APPWRITE_API_KEY',
+      'APPWRITE_BUCKET_ID',
+      'AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT',
+      'AZURE_DOCUMENT_INTELLIGENCE_KEY',
+      'AZURE_EMBEDDINGS_ENDPOINT',
+      'AZURE_EMBEDDINGS_API_KEY',
+      'NEON_DATABASE_URL',
+    ]
+    
+    const missingVars = requiredEnvVars.filter(key => !process.env[key])
+    if (missingVars.length > 0) {
+      return res.json({
+        success: false,
+        error: `Missing required environment variables: ${missingVars.join(', ')}`,
+      }, 500)
+    }
+    
+    log(`[${Date.now() - startTime}ms] Environment variables validated`)
+    
     // Parse request
     const data: ProcessDocumentRequest = JSON.parse(req.bodyRaw || '{}')
     const { fileId, companyId, uploadedBy, fileName, fileType, fileSize } = data
@@ -52,7 +105,7 @@ export default async function(context: any) {
       }, 400)
     }
 
-    log(`Processing document: ${fileName} for company ${companyId} (started at ${new Date().toISOString()})`)
+    log(`[${Date.now() - startTime}ms] Processing document: ${fileName} for company ${companyId}`)
 
     // Initialize Appwrite admin client
     const appwriteClient = new Client()
@@ -171,7 +224,7 @@ export default async function(context: any) {
 
     // 3. Get uploaded_by user ID from NeonDB
     log(`[${Date.now() - startTime}ms] Looking up user in NeonDB...`)
-    const sql = neon(process.env.NEON_DATABASE_URL!)
+    const sql = getNeonClient()
     
     const userResult = await sql`
       SELECT id FROM users WHERE appwrite_user_id = ${uploadedBy} LIMIT 1
