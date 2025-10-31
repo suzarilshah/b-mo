@@ -173,7 +173,9 @@ export async function processDocumentFunction(
 
       if (status.status === 'failed') {
         // Extract error details - try multiple possible fields
+        // Appwrite Execution object may have: stderr, responseBody, response, responseBodyRaw, body, error
         const errorBody = status.stderr || status.responseBody || status.response || status.responseBodyRaw || status.body || status.error
+        
         let errorMsg = 'Function execution failed'
         
         if (errorBody) {
@@ -190,8 +192,20 @@ export async function processDocumentFunction(
             errorMsg = String(errorBody)
           }
         } else {
-          // Try to get error from status object itself
-          errorMsg = status.error || status.message || JSON.stringify(status)
+          // If no error body found, check status object properties
+          // Log all available properties for debugging
+          const availableProps = Object.keys(status).filter(k => 
+            k.toLowerCase().includes('error') || 
+            k.toLowerCase().includes('message') || 
+            k.toLowerCase().includes('fail')
+          )
+          
+          if (availableProps.length > 0) {
+            errorMsg = `Function execution failed. Available error fields: ${availableProps.join(', ')}. Status: ${JSON.stringify(status)}`
+          } else {
+            // Last resort: stringify the entire status object
+            errorMsg = `Function execution failed. Status: ${JSON.stringify(status)}`
+          }
         }
         
         console.error('Function execution failed:', status)
