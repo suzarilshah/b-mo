@@ -32,10 +32,21 @@ let neonClient = null
 
 function getAppwriteClient() {
   if (!appwriteClient) {
+    const endpoint = process.env.APPWRITE_ENDPOINT
+    const projectId = process.env.APPWRITE_PROJECT_ID
+    const apiKey = process.env.APPWRITE_API_KEY
+    
+    if (!endpoint || !projectId || !apiKey) {
+      throw new Error(`Missing Appwrite config: endpoint=${!!endpoint}, projectId=${!!projectId}, apiKey=${!!apiKey}`)
+    }
+    
     appwriteClient = new Client()
-      .setEndpoint(process.env.APPWRITE_ENDPOINT)
-      .setProject(process.env.APPWRITE_PROJECT_ID)
-      .setKey(process.env.APPWRITE_API_KEY)
+      .setEndpoint(endpoint)
+      .setProject(projectId)
+    
+    // Set API key in headers for server-side operations
+    // Appwrite SDK v15 uses headers for API key authentication
+    appwriteClient.headers['X-Appwrite-Key'] = apiKey
   }
   return appwriteClient
 }
