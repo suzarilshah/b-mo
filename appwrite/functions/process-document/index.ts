@@ -21,49 +21,40 @@
  * - NEON_DATABASE_URL
  */
 
-import { Client, Storage } from 'appwrite'
-import { neon } from '@neondatabase/serverless'
+const { Client, Storage } = require('appwrite')
+const { neon } = require('@neondatabase/serverless')
 
 // Initialize clients outside the handler to avoid repeated initialization
 // This helps prevent runtime timeout during cold starts
-let appwriteClient: Client | null = null
-let storageInstance: Storage | null = null
-let neonClient: ReturnType<typeof neon> | null = null
+let appwriteClient = null
+let storageInstance = null
+let neonClient = null
 
-function getAppwriteClient(): Client {
+function getAppwriteClient() {
   if (!appwriteClient) {
     appwriteClient = new Client()
-      .setEndpoint(process.env.APPWRITE_ENDPOINT!)
-      .setProject(process.env.APPWRITE_PROJECT_ID!)
-      .setKey(process.env.APPWRITE_API_KEY!)
+      .setEndpoint(process.env.APPWRITE_ENDPOINT)
+      .setProject(process.env.APPWRITE_PROJECT_ID)
+      .setKey(process.env.APPWRITE_API_KEY)
   }
   return appwriteClient
 }
 
-function getStorage(): Storage {
+function getStorage() {
   if (!storageInstance) {
     storageInstance = new Storage(getAppwriteClient())
   }
   return storageInstance
 }
 
-function getNeonClient(): ReturnType<typeof neon> {
+function getNeonClient() {
   if (!neonClient) {
-    neonClient = neon(process.env.NEON_DATABASE_URL!)
+    neonClient = neon(process.env.NEON_DATABASE_URL)
   }
   return neonClient
 }
 
-interface ProcessDocumentRequest {
-  fileId: string        // Appwrite Storage file ID
-  companyId: string
-  uploadedBy: string    // Appwrite user ID
-  fileName: string
-  fileType: string
-  fileSize: number
-}
-
-export default async function(context: any) {
+module.exports = async function(context) {
   const { req, res, log, error } = context
   
   // Set execution start time for monitoring
@@ -94,7 +85,7 @@ export default async function(context: any) {
     log(`[${Date.now() - startTime}ms] Environment variables validated`)
     
     // Parse request
-    const data: ProcessDocumentRequest = JSON.parse(req.bodyRaw || '{}')
+    const data = JSON.parse(req.bodyRaw || '{}')
     const { fileId, companyId, uploadedBy, fileName, fileType, fileSize } = data
 
     // Validate input
@@ -113,7 +104,7 @@ export default async function(context: any) {
     // 1. Download file from Appwrite Storage
     log(`[${Date.now() - startTime}ms] Downloading file from Appwrite Storage...`)
     const fileBuffer = await storage.getFileDownload(
-      process.env.APPWRITE_BUCKET_ID!,
+      process.env.APPWRITE_BUCKET_ID,
       fileId
     )
     
@@ -127,8 +118,8 @@ export default async function(context: any) {
 
     // 2. Analyze with Azure Document Intelligence
     log(`[${Date.now() - startTime}ms] Starting Azure Document Intelligence analysis...`)
-    const docIntelligenceEndpoint = process.env.AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT!
-    const docIntelligenceKey = process.env.AZURE_DOCUMENT_INTELLIGENCE_KEY!
+    const docIntelligenceEndpoint = process.env.AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT
+    const docIntelligenceKey = process.env.AZURE_DOCUMENT_INTELLIGENCE_KEY
     
     const analyzeEndpoint = `${docIntelligenceEndpoint}formrecognizer/documentModels/prebuilt-invoice:analyze?api-version=2024-02-29-preview`
     
@@ -157,7 +148,7 @@ export default async function(context: any) {
     log(`[${Date.now() - startTime}ms] Analysis request submitted, polling for results...`)
 
     // Poll for results (optimized polling with exponential backoff)
-    let ocrResult: any = null
+    let ocrResult = null
     let attempts = 0
     const maxAttempts = 20 // Reduced from 30
     let pollDelay = 500 // Start with 500ms, increase gradually
@@ -181,7 +172,8 @@ export default async function(context: any) {
       }
 
       if (ocrResult.status === 'failed') {
-        throw new Error(`Analysis failed: ${ocrResult.error?.message || 'Unknown error'}`)
+        const errorMsg = (ocrResult.error && ocrResult.error.message) ? ocrResult.error.message : 'Unknown error'
+        throw new Error(`Analysis failed: ${errorMsg}`)
       }
 
       // Exponential backoff: 500ms, 750ms, 1000ms, 1500ms...
@@ -196,14 +188,14 @@ export default async function(context: any) {
 
     // Extract confidence scores and fields
     let minConfidence = 1.0
-    const extractedFields: Record<string, any> = {}
+    const extractedFields = {}
 
-    if (ocrResult.analyzeResult?.documents && ocrResult.analyzeResult.documents.length > 0) {
+    if (ocrResult.analyzeResult && ocrResult.analyzeResult.documents && ocrResult.analyzeResult.documents.length > 0) {
       const document = ocrResult.analyzeResult.documents[0]
 
       if (document.fields) {
         for (const [fieldName, fieldValue] of Object.entries(document.fields)) {
-          const field = fieldValue as any
+          const field = fieldValue
           const confidence = field.confidence || 1.0
           minConfidence = Math.min(minConfidence, confidence)
 
@@ -266,9 +258,9 @@ export default async function(context: any) {
       log(`[${Date.now() - startTime}ms] Generating embeddings...`)
       
       // Extract text from document fields for embedding
-      const textChunks: string[] = []
+      const textChunks = []
       for (const [key, value] of Object.entries(extractedFields)) {
-        if (value?.value && typeof value.value === 'string') {
+        if (value && value.value && typeof value.value === 'string') {
           textChunks.push(`${key}: ${value.value}`)
         }
       }
@@ -278,8 +270,8 @@ export default async function(context: any) {
       if (combinedText.length > 0) {
         try {
           // Generate embedding using Azure Embeddings API
-          const embeddingsEndpoint = process.env.AZURE_EMBEDDINGS_ENDPOINT!
-          const embeddingsKey = process.env.AZURE_EMBEDDINGS_API_KEY!
+          const embeddingsEndpoint = process.env.AZURE_EMBEDDINGS_ENDPOINT
+          const embeddingsKey = process.env.AZURE_EMBEDDINGS_API_KEY
           const embeddingsModel = process.env.AZURE_EMBEDDINGS_MODEL || 'embed-v-4-0'
           const embeddingsDimensions = parseInt(process.env.AZURE_EMBEDDINGS_DIMENSIONS || '1536')
 
@@ -304,11 +296,11 @@ export default async function(context: any) {
             const embeddingData = await embeddingResponse.json()
             
             // Extract embedding from response
-            let embedding: number[] = []
-            if (embeddingData.data && Array.isArray(embeddingData.data) && embeddingData.data[0]?.embedding) {
+            let embedding = []
+            if (embeddingData.data && Array.isArray(embeddingData.data) && embeddingData.data[0] && embeddingData.data[0].embedding) {
               embedding = embeddingData.data[0].embedding
             } else if (Array.isArray(embeddingData)) {
-              embedding = embeddingData[0]?.embedding || embeddingData[0]
+              embedding = (embeddingData[0] && embeddingData[0].embedding) ? embeddingData[0].embedding : (embeddingData[0] || [])
             } else if (embeddingData.embedding) {
               embedding = embeddingData.embedding
             }
@@ -333,8 +325,9 @@ export default async function(context: any) {
               log(`[${Date.now() - startTime}ms] Embedding stored for document ${documentId}`)
             }
           }
-        } catch (embeddingError: any) {
-          log(`[${Date.now() - startTime}ms] Warning: Embedding generation failed: ${embeddingError.message}`)
+        } catch (embeddingError) {
+          const errorMsg = embeddingError && embeddingError.message ? embeddingError.message : String(embeddingError)
+          log(`[${Date.now() - startTime}ms] Warning: Embedding generation failed: ${errorMsg}`)
           // Continue without embeddings - document still created
         }
       }
@@ -351,13 +344,14 @@ export default async function(context: any) {
       message: `Document processed successfully: ${fileName}`,
       processingTimeMs: totalTime,
     })
-  } catch (err: any) {
+  } catch (err) {
     const totalTime = Date.now() - startTime
-    error(`[${totalTime}ms] Error processing document: ${err.message}`)
-    log(`[${totalTime}ms] Error processing document: ${err.message}`)
+    const errorMsg = err && err.message ? err.message : String(err)
+    error(`[${totalTime}ms] Error processing document: ${errorMsg}`)
+    log(`[${totalTime}ms] Error processing document: ${errorMsg}`)
     return res.json({
       success: false,
-      error: err.message || 'Failed to process document',
+      error: errorMsg || 'Failed to process document',
       processingTimeMs: totalTime,
     }, 500)
   }
