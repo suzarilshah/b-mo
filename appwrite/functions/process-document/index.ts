@@ -107,13 +107,8 @@ export default async function(context: any) {
 
     log(`[${Date.now() - startTime}ms] Processing document: ${fileName} for company ${companyId}`)
 
-    // Initialize Appwrite admin client
-    const appwriteClient = new Client()
-      .setEndpoint(process.env.APPWRITE_ENDPOINT!)
-      .setProject(process.env.APPWRITE_PROJECT_ID!)
-      .setKey(process.env.APPWRITE_API_KEY!)
-
-    const storage = new Storage(appwriteClient)
+    // Use pre-initialized storage client (reuse to avoid cold start delays)
+    const storage = getStorage()
 
     // 1. Download file from Appwrite Storage
     log(`[${Date.now() - startTime}ms] Downloading file from Appwrite Storage...`)
