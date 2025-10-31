@@ -106,8 +106,10 @@ export async function processDocumentFunction(
         execution.$id
       )
 
-      // Debug: Log the full status object to understand its structure
-      console.log('Execution status:', JSON.stringify(status, null, 2))
+      // Debug logging (only in development)
+      if (import.meta.env.DEV) {
+        console.log('Execution status:', status)
+      }
 
       if (status.status === 'completed') {
         // Parse response
