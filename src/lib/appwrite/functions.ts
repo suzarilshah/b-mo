@@ -174,7 +174,17 @@ export async function processDocumentFunction(
       if (status.status === 'failed') {
         // Extract error details - try multiple possible fields
         // Appwrite Execution object may have: stderr, responseBody, response, responseBodyRaw, body, error
-        const errorBody = status.stderr || status.responseBody || status.response || status.responseBodyRaw || status.body || status.error
+        // Also check for nested error objects
+        let errorBody = status.stderr || status.responseBody || status.response || status.responseBodyRaw || status.body || status.error
+        
+        // If responseBody is empty string but content-length exists, try to get it from response
+        if (!errorBody && status.responseHeaders) {
+          const contentTypeHeader = status.responseHeaders.find((h: any) => h.name === 'content-type')
+          if (contentTypeHeader && contentTypeHeader.value.includes('application/json')) {
+            // Try to extract from responseBodyRaw if available
+            errorBody = status.responseBodyRaw || status.body
+          }
+        }
         
         let errorMsg = 'Function execution failed'
         
@@ -182,36 +192,60 @@ export async function processDocumentFunction(
           if (typeof errorBody === 'string') {
             try {
               const parsed = JSON.parse(errorBody)
-              errorMsg = parsed.error || parsed.message || errorBody
+              errorMsg = parsed.error || parsed.message || parsed.details || errorBody
             } catch {
               errorMsg = errorBody
             }
           } else if (typeof errorBody === 'object') {
-            errorMsg = errorBody.error || errorBody.message || JSON.stringify(errorBody)
+            errorMsg = errorBody.error || errorBody.message || errorBody.details || JSON.stringify(errorBody)
           } else {
             errorMsg = String(errorBody)
           }
         } else {
-          // If no error body found, check status object properties
-          // Log all available properties for debugging
-          const availableProps = Object.keys(status).filter(k => 
-            k.toLowerCase().includes('error') || 
-            k.toLowerCase().includes('message') || 
-            k.toLowerCase().includes('fail')
-          )
-          
-          if (availableProps.length > 0) {
-            errorMsg = `Function execution failed. Available error fields: ${availableProps.join(', ')}. Status: ${JSON.stringify(status)}`
+          // Enhanced error extraction - try to get responseBody from the actual HTTP response
+          // Sometimes Appwrite wraps the response
+          if (status.responseStatusCode === 500) {
+            // Try to extract from any available field
+            const allFields = Object.keys(status)
+            const possibleErrorFields = allFields.filter(k => 
+              k.toLowerCase().includes('error') || 
+              k.toLowerCase().includes('message') || 
+              k.toLowerCase().includes('fail') ||
+              k.toLowerCase().includes('body') ||
+              k.toLowerCase().includes('response')
+            )
+            
+            // Try to get actual error from nested objects
+            let foundError = null
+            for (const key of possibleErrorFields) {
+              const value = (status as any)[key]
+              if (value && typeof value === 'object') {
+                const nestedError = value.error || value.message || value.details
+                if (nestedError) {
+                  foundError = nestedError
+                  break
+                }
+              } else if (value && typeof value === 'string' && value.length > 0) {
+                foundError = value
+                break
+              }
+            }
+            
+            if (foundError) {
+              errorMsg = foundError
+            } else {
+              // Last resort: include full status for debugging
+              errorMsg = `Function execution failed with status 500. Response length: ${status.responseHeaders?.find((h: any) => h.name === 'content-length')?.value || 'unknown'} bytes. Full status: ${JSON.stringify(status, null, 2)}`
+            }
           } else {
-            // Last resort: stringify the entire status object
-            errorMsg = `Function execution failed. Status: ${JSON.stringify(status)}`
+            errorMsg = `Function execution failed. Status code: ${status.responseStatusCode || 'unknown'}. Full status: ${JSON.stringify(status, null, 2)}`
           }
         }
         
-        console.error('Function execution failed:', status)
+        console.error('Function execution failed. Full status:', JSON.stringify(status, null, 2))
         return {
           success: false,
-          error: `Function execution failed: ${errorMsg}`,
+          error: errorMsg,
         }
       }
 

@@ -347,12 +347,24 @@ module.exports = async function(context) {
   } catch (err) {
     const totalTime = Date.now() - startTime
     const errorMsg = err && err.message ? err.message : String(err)
-    error(`[${totalTime}ms] Error processing document: ${errorMsg}`)
-    log(`[${totalTime}ms] Error processing document: ${errorMsg}`)
+    const errorStack = err && err.stack ? err.stack : null
+    const errorName = err && err.name ? err.name : 'Error'
+    
+    // Log detailed error information
+    error(`[${totalTime}ms] Error processing document: ${errorName}: ${errorMsg}`)
+    log(`[${totalTime}ms] Error processing document: ${errorName}: ${errorMsg}`)
+    if (errorStack) {
+      log(`[${totalTime}ms] Error stack: ${errorStack}`)
+    }
+    
+    // Return detailed error response
     return res.json({
       success: false,
       error: errorMsg || 'Failed to process document',
+      errorName: errorName,
+      errorStack: errorStack || undefined,
       processingTimeMs: totalTime,
+      timestamp: new Date().toISOString()
     }, 500)
   }
 }
