@@ -106,28 +106,62 @@ export async function processDocumentFunction(
         execution.$id
       )
 
+      // Debug: Log the full status object to understand its structure
+      console.log('Execution status:', JSON.stringify(status, null, 2))
+
       if (status.status === 'completed') {
         // Parse response
         if (status.responseStatusCode === 200) {
           try {
-            const responseBody = status.responseBody || status.response
-            const result = typeof responseBody === 'string' 
-              ? JSON.parse(responseBody)
-              : responseBody
+            // Try different possible response fields
+            const responseBody = status.responseBody || status.response || status.responseBodyRaw || status.body
+            let result: any
+            
+            if (typeof responseBody === 'string') {
+              try {
+                result = JSON.parse(responseBody)
+              } catch (e) {
+                // If it's not JSON, treat as plain text
+                result = { success: true, message: responseBody }
+              }
+            } else if (responseBody) {
+              result = responseBody
+            } else {
+              // No response body, check if there's data elsewhere
+              result = status
+            }
+            
             return result
           } catch (e) {
+            console.error('Failed to parse function response:', e, status)
             return {
               success: false,
-              error: 'Failed to parse function response',
+              error: `Failed to parse function response: ${e instanceof Error ? e.message : String(e)}`,
             }
           }
         } else {
-          // Extract error details from response
-          const errorBody = status.responseBody || status.stderr || status.response
-          const errorMsg = typeof errorBody === 'string' 
-            ? errorBody 
-            : JSON.stringify(errorBody)
+          // Extract error details from response - try multiple possible fields
+          const errorBody = status.responseBody || status.stderr || status.response || status.responseBodyRaw || status.body || status.error
+          let errorMsg = 'Unknown error'
           
+          if (errorBody) {
+            if (typeof errorBody === 'string') {
+              try {
+                const parsed = JSON.parse(errorBody)
+                errorMsg = parsed.error || parsed.message || errorBody
+              } catch {
+                errorMsg = errorBody
+              }
+            } else if (typeof errorBody === 'object') {
+              errorMsg = errorBody.error || errorBody.message || JSON.stringify(errorBody)
+            } else {
+              errorMsg = String(errorBody)
+            }
+          } else {
+            errorMsg = `Function returned status code ${status.responseStatusCode || 'unknown'}`
+          }
+          
+          console.error('Function execution failed:', status)
           return {
             success: false,
             error: `Function execution failed: ${errorMsg}`,
@@ -136,11 +170,29 @@ export async function processDocumentFunction(
       }
 
       if (status.status === 'failed') {
-        const errorBody = status.stderr || status.responseBody || status.response
-        const errorMsg = typeof errorBody === 'string' 
-          ? errorBody 
-          : JSON.stringify(errorBody)
+        // Extract error details - try multiple possible fields
+        const errorBody = status.stderr || status.responseBody || status.response || status.responseBodyRaw || status.body || status.error
+        let errorMsg = 'Function execution failed'
         
+        if (errorBody) {
+          if (typeof errorBody === 'string') {
+            try {
+              const parsed = JSON.parse(errorBody)
+              errorMsg = parsed.error || parsed.message || errorBody
+            } catch {
+              errorMsg = errorBody
+            }
+          } else if (typeof errorBody === 'object') {
+            errorMsg = errorBody.error || errorBody.message || JSON.stringify(errorBody)
+          } else {
+            errorMsg = String(errorBody)
+          }
+        } else {
+          // Try to get error from status object itself
+          errorMsg = status.error || status.message || JSON.stringify(status)
+        }
+        
+        console.error('Function execution failed:', status)
         return {
           success: false,
           error: `Function execution failed: ${errorMsg}`,
