@@ -187,9 +187,22 @@ module.exports = async function(context) {
     const docIntelligenceEndpoint = process.env.AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT
     const docIntelligenceKey = process.env.AZURE_DOCUMENT_INTELLIGENCE_KEY
     
-    const analyzeEndpoint = `${docIntelligenceEndpoint}formrecognizer/documentModels/prebuilt-invoice:analyze?api-version=2024-02-29-preview`
+    // Normalize endpoint - ensure it ends with /
+    const normalizedEndpoint = docIntelligenceEndpoint.endsWith('/') 
+      ? docIntelligenceEndpoint 
+      : docIntelligenceEndpoint + '/'
     
-    const analyzeResponse = await fetch(analyzeEndpoint, {
+    log(`[${Date.now() - startTime}ms] Azure endpoint: ${normalizedEndpoint}`)
+    
+    // Try formrecognizer (v3.1 API) - most commonly used
+    // API version 2023-07-31 is stable and widely supported
+    let analyzeEndpoint = `${normalizedEndpoint}formrecognizer/documentModels/prebuilt-invoice:analyze?api-version=2023-07-31`
+    let analyzeResponse = null
+    let apiUsed = 'formrecognizer'
+    
+    log(`[${Date.now() - startTime}ms] Trying formrecognizer API: ${analyzeEndpoint.substring(0, 100)}...`)
+    
+    analyzeResponse = await fetch(analyzeEndpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -199,19 +212,38 @@ module.exports = async function(context) {
         base64Source: base64Data,
       }),
     })
-
+    
+    // If 404 with formrecognizer, try documentintelligence (v4 API)
+    if (analyzeResponse.status === 404) {
+      log(`[${Date.now() - startTime}ms] formrecognizer API returned 404, trying documentintelligence API...`)
+      analyzeEndpoint = `${normalizedEndpoint}documentintelligence/documentModels/prebuilt-invoice:analyze?api-version=2023-07-31`
+      apiUsed = 'documentintelligence'
+      
+      analyzeResponse = await fetch(analyzeEndpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Ocp-Apim-Subscription-Key': docIntelligenceKey,
+        },
+        body: JSON.stringify({
+          base64Source: base64Data,
+        }),
+      })
+    }
+    
     if (!analyzeResponse.ok) {
       const errorText = await analyzeResponse.text()
-      throw new Error(`Document Intelligence API error: ${errorText}`)
+      log(`[${Date.now() - startTime}ms] Azure API error (${apiUsed}): ${analyzeResponse.status} ${analyzeResponse.statusText}`)
+      throw new Error(`Document Intelligence API error (${apiUsed}): ${analyzeResponse.status} ${analyzeResponse.statusText}. ${errorText}`)
     }
 
     // Get operation location
     const operationLocation = analyzeResponse.headers.get('Operation-Location')
     if (!operationLocation) {
-      throw new Error('No operation location in response')
+      throw new Error(`No operation location in response (${apiUsed})`)
     }
 
-    log(`[${Date.now() - startTime}ms] Analysis request submitted, polling for results...`)
+    log(`[${Date.now() - startTime}ms] Analysis request submitted (${apiUsed}), polling for results...`)
 
     // Poll for results (optimized polling with exponential backoff)
     let ocrResult = null
