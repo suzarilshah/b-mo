@@ -153,18 +153,34 @@ module.exports = async function(context) {
 
     // 1. Download file from Appwrite Storage
     log(`[${Date.now() - startTime}ms] Downloading file from Appwrite Storage...`)
-    const fileBuffer = await storage.getFileDownload(
+    
+    // getFileDownload() returns a URL object, not a Response
+    const downloadUrl = storage.getFileDownload(
       process.env.APPWRITE_BUCKET_ID,
       fileId
     )
     
-    // Convert Response to Buffer/ArrayBuffer for Azure API
-    const arrayBuffer = await fileBuffer.arrayBuffer()
-    const bytes = new Uint8Array(arrayBuffer)
-    const binary = bytes.reduce((acc, byte) => acc + String.fromCharCode(byte), '')
-    const base64Data = Buffer.from(binary, 'binary').toString('base64')
+    // Fetch file with authentication headers for server-side access
+    const fileResponse = await fetch(downloadUrl.toString(), {
+      headers: {
+        'X-Appwrite-Project': process.env.APPWRITE_PROJECT_ID,
+        'X-Appwrite-Key': process.env.APPWRITE_API_KEY,
+      },
+    })
     
-    log(`[${Date.now() - startTime}ms] File downloaded and converted (size: ${base64Data.length} bytes)`)
+    if (!fileResponse.ok) {
+      const errorText = await fileResponse.text().catch(() => 'Unknown error')
+      throw new Error(`Failed to download file: ${fileResponse.status} ${fileResponse.statusText}. ${errorText}`)
+    }
+    
+    // Convert Response to ArrayBuffer
+    const arrayBuffer = await fileResponse.arrayBuffer()
+    const bytes = new Uint8Array(arrayBuffer)
+    
+    // Convert to base64 for Azure API (simplified using Buffer.from directly)
+    const base64Data = Buffer.from(bytes).toString('base64')
+    
+    log(`[${Date.now() - startTime}ms] File downloaded and converted (size: ${base64Data.length} base64 chars, ${bytes.length} bytes)`)
 
     // 2. Analyze with Azure Document Intelligence
     log(`[${Date.now() - startTime}ms] Starting Azure Document Intelligence analysis...`)

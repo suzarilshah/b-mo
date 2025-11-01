@@ -27,3 +27,4 @@ CREATE INDEX IF NOT EXISTS idx_invitations_expires_at ON invitations(expires_at)
 CREATE TRIGGER update_invitations_updated_at BEFORE UPDATE ON invitations
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+

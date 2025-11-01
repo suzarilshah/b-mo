@@ -1,0 +1,50 @@
+{
+    "mcpServers": {
+        "appwrite": {
+            "command": "uvx",
+            "args": [
+                "mcp-server-appwrite",
+                "--all"                            
+            ],
+            "env": {
+                "APPWRITE_API_KEY": "standard_3a1cf01d36485fa4d601040cd74817c18d78420a2da7d392c1e2de6b0531518acfab73456f218bb42aefe5f6719e108c55e6783b13dc0497d13737c94893e316a4ef45076692f0722c00a7a0e085779739da842759a075657022d6a5523cedd7a0d4f53cc83b1f964af6fbc8afeb0d31239e7fe1e0d50640490f14cd9e8cd38a",
+                "APPWRITE_PROJECT_ID": "b-mo",
+                "APPWRITE_ENDPOINT": "https://sgp.cloud.appwrite.io/v1"
+            }
+        },
+        "context7": {
+            "command": "npx",
+            "args": [
+                "-y",
+                "@upstash/context7-mcp",
+                "--api-key",
+                "ctx7sk-34e388d1-1e13-4b25-b039-7e425cc813d0"
+            ]
+        },
+        "playwright": {
+            "command": "npx",
+            "args": [
+                "@playwright/mcp@latest"
+            ]
+        },
+        "Neon": {
+            "url": "https://mcp.neon.tech/mcp",
+            "headers": {}
+        },
+        
+        "mui-mcp": {
+            "type": "stdio",
+            "command": "npx",
+            "args": ["-y", "@mui/mcp@latest"]
+        },
+        "selenium": {
+            "command": "npx",
+            "args": [
+                "-y",
+                "@angiejones/mcp-selenium"
+            ]
+        }
+        
+        
+    }
+}
